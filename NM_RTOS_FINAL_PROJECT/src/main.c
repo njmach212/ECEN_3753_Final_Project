@@ -35,6 +35,7 @@
 #include "displayconfigapp.h"
 #include "glib.h"
 #include "string.h"
+#include <math.h>
 
 #include  <cpu/include/cpu.h>
 #include  <common/include/common.h>
@@ -97,8 +98,8 @@ static  OS_TCB   Ex_GAIN_TaskTCB;
 static  CPU_STK  Ex_MOVEMENT_TaskStk[EX_MOVEMENT_TASK_STK_SIZE];
 static  OS_TCB   Ex_MOVEMENT_TaskTCB;
 
-static  CPU_STK  Ex_LedOutputTaskStk[EX_LED_OUTPUT_TASK_STK_SIZE];
-static  OS_TCB   Ex_LedOutputTaskTCB;
+//static  CPU_STK  Ex_LedOutputTaskStk[EX_LED_OUTPUT_TASK_STK_SIZE];
+//static  OS_TCB   Ex_LedOutputTaskTCB;
 
 static  CPU_STK  Ex_IdleTaskStk[EX_IDLE_TASK_STK_SIZE];
 static  OS_TCB   Ex_IdleTaskTCB;
@@ -114,8 +115,9 @@ static OS_FLAG_GRP 	event_flag;
 static OS_FLAG_GRP 	physics_flag;
 static OS_SEM		btnsem;
 static OS_MUTEX		gainmut;
-static OS_MUTEX		forcemut;
+static OS_MUTEX		movementmut;
 static OS_TMR		os_tmr;
+static  OS_Q  Message_Q;
 
 enum {
 	useless,
@@ -135,15 +137,16 @@ enum {
 static  void  Ex_MainStartTask (void  *p_arg);
 static void Ex_GAIN_Task(void *p_arg);
 static void Ex_MOVEMENT_Task(void *p_arg);
-static void Ex_LedOutputTask(void *p_arg);
+//static void Ex_LedOutputTask(void *p_arg);
 static void Ex_IdleTask(void *p_arg);
 static void Ex_LCD_Display_Task(void *p_arg);
 static void Ex_PHYSICS_Task(void *p_arg);
 static void MyCallback(OS_TMR os_tmr, void *p_arg);
 //static volatile bool btn0 = false, btn1 = false;
-static volatile uint32_t msTicks = 0, start = 0, end = 0;
+static volatile uint32_t msTicks = 0, start = 0;
 static  volatile uint32_t sld = 0;
 struct node *head = NULL;
+struct Physics physics;
 static volatile uint32_t gain = 0;
 static volatile uint32_t Direction = 0;
 enum
@@ -400,7 +403,7 @@ int main(void)
 	                     (OS_SEM_CTR)   0,
 	                     (RTOS_ERR    *)&err);
 
-	  	  OSMutexCreate ((OS_MUTEX      *)&forcemut,
+	  	  OSMutexCreate ((OS_MUTEX      *)&movementmut,
 	                     (CPU_CHAR    *)"Force Mutex",
 	                     (RTOS_ERR    *)&err);
 
@@ -408,14 +411,19 @@ int main(void)
 	                     (CPU_CHAR    *)"gain Mutex",
 	                     (RTOS_ERR    *)&err);
 
-	  	  OSTmrCreate ((OS_TMR               *)&os_tmr,
-	                     (CPU_CHAR             *)"OS Timer",
-	                     (OS_TICK)               10,
-	                     (OS_TICK)               10,
-	                     (OS_OPT)                OS_OPT_TMR_PERIODIC,
-	                     (OS_TMR_CALLBACK_PTR)   &MyCallback,
-	                     (void                 *)0,
-	                     (RTOS_ERR             *)&err);
+//	  	  OSTmrCreate ((OS_TMR               *)&os_tmr,
+//	                     (CPU_CHAR             *)"OS Timer",
+//	                     (OS_TICK)               10,
+//	                     (OS_TICK)               10,
+//	                     (OS_OPT)                OS_OPT_TMR_PERIODIC,
+//	                     (OS_TMR_CALLBACK_PTR)   &MyCallback,
+//	                     (void                 *)0,
+//	                     (RTOS_ERR             *)&err);
+
+	  	OSQCreate((OS_Q *) &Message_Q,
+	  				(CPU_CHAR *)"Message Queue",
+	  				(OS_MSG_QTY)4,
+	  				(RTOS_ERR *)&err);
 
 
 																/*   Check error code.                                  */
@@ -432,10 +440,10 @@ int main(void)
 	  	  }
 }
 
-static void MyCallback(OS_TMR os_tmr, void *p_arg)
-{
-	RTOS_ERR err;
-}
+//static void MyCallback(OS_TMR os_tmr, void *p_arg)
+//{
+//	RTOS_ERR err;
+//}
 
 static  void  Ex_MainStartTask (void  *p_arg)
 {
@@ -521,7 +529,7 @@ static  void  Ex_MOVEMENT_Task (void  *p_arg)
        CAPSENSE_Sense();
        temp = sld;
        Sld();
-       OSMutexPend(&forcemut, 0, OS_OPT_PEND_BLOCKING, (CPU_TS *)0, &err);
+       OSMutexPend(&movementmut, 0, OS_OPT_PEND_BLOCKING, (CPU_TS *)0, &err);
        if (sld == 1)
        {
     	   Direction = 2;
@@ -542,7 +550,7 @@ static  void  Ex_MOVEMENT_Task (void  *p_arg)
        {
     	   Direction = 0;
        }
-       OSMutexPost(&forcemut, OS_OPT_POST_NONE, &err);
+       OSMutexPost(&movementmut, OS_OPT_POST_NONE, &err);
        if (temp != 0)
        {
     	   OSFlagPost(&physics_flag, 0x2, OS_OPT_POST_FLAG_SET, &err);
@@ -610,35 +618,82 @@ static  void  Ex_PHYSICS_Task (void  *p_arg)
 {
     RTOS_ERR  err;
     OS_FLAGS flag;
+    physics.Gain = 0;
+    physics.st = msTicks;
+    physics.ed = 0;
+    physics.delta_t = 0;
+    physics.Dir = 0;
+    physics.gravity = 9.8;
+    physics.mass = 20;
+    physics.length = 0.5;
+    physics.xmin = -64;
+    physics.xmax = 64;
+    physics.h_velocity = 0;
+    physics.v_velocity = 0;
+    physics.h_acceleration = 0;
+    physics.v_acceleration = 0;
+    physics.h_force = 0;
+    physics.v_force = 0;
+    physics.hb_force = 0;
+    physics.vb_force = 0;
+    physics.hc_force = 0;
+    physics.vc_force = 0;
+    physics.h_position = 0;
+    physics.v_position = 0.5;
+    physics.theta = 0;
+    struct lcd_info post_msg;
     PP_UNUSED_PARAM(p_arg);
     while (1)
     {
-        OSTimeDly( 100,                                        /*   100 OS Ticks                                      */
-                   OS_OPT_TIME_DLY,                             /*   from now.                                          */
-                  &err);
         flag = OSFlagPend(&physics_flag, 0x3, 0, OS_OPT_PEND_FLAG_SET_ANY + OS_OPT_PEND_FLAG_CONSUME, (CPU_TS *)0, &err);
         if (0x2 == flag || 0x03 == flag)
         {
-        	OSMutexPend(&forcemut, 0, OS_OPT_PEND_BLOCKING, (CPU_TS *)0, &err);
-        	OSMutexPost(&forcemut, OS_OPT_POST_NONE, &err);
+        	OSMutexPend(&movementmut, 0, OS_OPT_PEND_BLOCKING, (CPU_TS *)0, &err);
+        	physics.Dir = Direction;
+        	OSMutexPost(&movementmut, OS_OPT_POST_NONE, &err);
         }
         if (0x1 == flag || 0x03 == flag)
         {
         	OSMutexPend(&gainmut, 0, OS_OPT_PEND_BLOCKING, (CPU_TS *)0, &err);
-//        	if(gain ==0)
-//        	{
-//        		OSFlagPost(&event_flag, 0x4, OS_OPT_POST_FLAG_SET, &err);
-//        	}
-//        	else
-//        	{
-//            	OSFlagPost(&event_flag, 0x1, OS_OPT_POST_FLAG_SET, &err);
-//        	}
+        	physics.Gain = gain;
         	OSMutexPost(&gainmut, OS_OPT_POST_NONE, &err);
+        }
+        physics.ed = msTicks;
+        physics.delta_t = (physics.ed-physics.st)/1000;
+        physics.vb_force = physics.mass * physics.gravity;
+        physics.hb_force = physics.vb_force * tan(physics.theta);
+        physics.hc_force = physics.Gain * (bool)(physics.Dir);
+        if(physics.theta == 0)
+        {
+        	physics.vc_force = physics.mass*physics.gravity;
         }
         else
         {
-
+        	physics.vc_force = physics.hc_force/tan(physics.theta);
         }
+        physics.v_force = physics.vc_force - physics.vb_force;
+        if(physics.Dir == 1)
+        {
+            physics.h_force = physics.hb_force - physics.hc_force;
+        }
+        else if(physics.Dir == 2)
+        {
+            physics.h_force = physics.hc_force - physics.hb_force;
+        }
+        else
+        {
+            physics.h_force = physics.hb_force;
+        }
+        physics.v_acceleration = physics.v_force/physics.mass;
+        physics.h_acceleration = physics.h_force/physics.mass;
+        physics.v_velocity = physics.v_velocity + physics.v_acceleration*physics.delta_t;
+        physics.h_velocity = physics.h_velocity + physics.h_acceleration*physics.delta_t;
+        physics.v_position = physics.v_position + physics.v_velocity*physics.delta_t;
+        physics.h_position = physics.h_position + physics.h_velocity*physics.delta_t;
+        physics.theta = atan(physics.h_position/physics.v_position);
+        physics.hc_position = physics.length*sin(physics.theta);
+        physics.st = physics.ed;
+		OSQPost(&Message_Q, &post_msg, sizeof(post_msg), OS_OPT_POST_FIFO, &err);
     }
 }
 
@@ -648,8 +703,10 @@ static  void  Ex_LCD_Display_Task (void  *p_arg)
     PP_UNUSED_PARAM(p_arg);
     DISPLAY_Init();
     RETARGET_TextDisplayInit();
+    struct lcd_info *buf;
     while (1)
     {
+    	buf = OSQPend(&Message_Q, 0 , OS_OPT_PEND_NON_BLOCKING, (OS_MSG_SIZE *)sizeof(struct lcd_info), (CPU_TS *)0, &err);
         OSTimeDly( 100,                                        /*   100 OS Ticks                                      */
                    OS_OPT_TIME_DLY,                             /*   from now.                                          */
                   &err);
