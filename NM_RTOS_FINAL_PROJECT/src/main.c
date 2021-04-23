@@ -35,6 +35,7 @@
 #include "displayconfigapp.h"
 #include "glib.h"
 #include "string.h"
+#include "displayls013b7dh03config.h"
 #include <math.h>
 
 #include  <cpu/include/cpu.h>
@@ -149,6 +150,7 @@ struct node *head = NULL;
 struct Physics physics;
 static volatile uint32_t gain = 0;
 static volatile uint32_t Direction = 0;
+GLIB_Context_t context;
 enum
 {
 	Far_Left,
@@ -282,6 +284,7 @@ int main(void)
 	  SysTick_Config(CMU_ClockFreqGet(cmuClock_CORE) / 1000);
 	  BSP_SystemInit();                                           /* Initialize System.                                   */
 	  CPU_Init();
+	  //while(DISPLAY_Init() != DISPLAY_EMSTATUS_OK);
 	  OS_TRACE_INIT();
 	  OSInit(&err);                                               /* Initialize the Kernel.                               */
 																/*   Check error code.                                  */
@@ -475,7 +478,7 @@ static  void  Ex_MainStartTask (void  *p_arg)
 	  NVIC_EnableIRQ(GPIO_EVEN_IRQn);
 	  NVIC_EnableIRQ(GPIO_ODD_IRQn);
 	  RTOS_ERR  err;                                               /* Initialize CPU.                                      */
-	  OSTmrStart(&os_tmr, &err);
+	  //OSTmrStart(&os_tmr, &err);
 	  PP_UNUSED_PARAM(p_arg);                                     /* Prevent compiler warning.                            */
 
 	  Common_Init(&err);                                          /* Call common module initialization example.           */
@@ -659,30 +662,56 @@ static  void  Ex_PHYSICS_Task (void  *p_arg)
         	OSMutexPost(&gainmut, OS_OPT_POST_NONE, &err);
         }
         physics.ed = msTicks;
-        physics.delta_t = (physics.ed-physics.st)/1000;
+        if(physics.Gain != 0 && physics.theta == 0 && physics.Dir == 1)
+        {
+            physics.theta = -0.0175;
+        }
+        else if (physics.Gain != 0 && physics.theta == 0 && physics.Dir == 2)
+        {
+            physics.theta = 0.0175;
+        }
+        physics.delta_t = (physics.ed - physics.st)/1000;
         physics.vb_force = physics.mass * physics.gravity;
-        physics.hb_force = physics.vb_force * tan(physics.theta);
-        physics.hc_force = physics.Gain * (bool)(physics.Dir);
+        physics.hb_force = -(physics.vb_force * tan(physics.theta));
+        physics.hc_force = (physics.Gain * (bool)(physics.Dir))*sin(physics.theta)*sin(physics.theta);
         if(physics.theta == 0)
         {
-        	physics.vc_force = physics.mass*physics.gravity;
+            physics.vc_force = physics.mass*physics.gravity;
         }
         else
         {
-        	physics.vc_force = physics.hc_force/tan(physics.theta);
+            physics.vc_force = (physics.Gain*(bool)(physics.Dir))*sin(physics.theta)*cos(physics.theta);
+            if(physics.vc_force < 0)
+            {
+                physics.vc_force = -physics.vc_force;
+            }
         }
         physics.v_force = physics.vc_force - physics.vb_force;
         if(physics.Dir == 1)
         {
-            physics.h_force = physics.hb_force - physics.hc_force;
+            if(physics.hb_force < physics.hc_force)
+            {
+                physics.h_force = physics.hb_force + physics.hc_force;
+            }
+            else
+            {
+                physics.h_force = 0;
+            }
         }
         else if(physics.Dir == 2)
         {
-            physics.h_force = physics.hc_force - physics.hb_force;
+            if(physics.hb_force < physics.hc_force)
+            {
+                physics.h_force = physics.hb_force - physics.hc_force;
+            }
+            else
+            {
+                physics.h_force = 0;
+            }
         }
         else
         {
-            physics.h_force = physics.hb_force;
+            physics.h_force = 0;
         }
         physics.v_acceleration = physics.v_force/physics.mass;
         physics.h_acceleration = physics.h_force/physics.mass;
@@ -690,9 +719,21 @@ static  void  Ex_PHYSICS_Task (void  *p_arg)
         physics.h_velocity = physics.h_velocity + physics.h_acceleration*physics.delta_t;
         physics.v_position = physics.v_position + physics.v_velocity*physics.delta_t;
         physics.h_position = physics.h_position + physics.h_velocity*physics.delta_t;
-        physics.theta = atan(physics.h_position/physics.v_position);
-        physics.hc_position = physics.length*sin(physics.theta);
+        physics.hc_position = -physics.length*sin(physics.theta);
+        if(physics.hc_position < physics.h_position)
+        {
+            physics.theta = acos(physics.v_position/physics.length);
+        }
+        else if(physics.hc_position > physics.h_position)
+        {
+            physics.theta = -acos(physics.v_position/physics.length);
+        }
+        else
+        {
+            physics.theta = 0;
+        }
         physics.st = physics.ed;
+
 		OSQPost(&Message_Q, &post_msg, sizeof(post_msg), OS_OPT_POST_FIFO, &err);
     }
 }
@@ -701,8 +742,8 @@ static  void  Ex_LCD_Display_Task (void  *p_arg)
 {
     RTOS_ERR  err;
     PP_UNUSED_PARAM(p_arg);
-    DISPLAY_Init();
-    RETARGET_TextDisplayInit();
+	while(DMD_init(0) != DMD_OK);
+	while(GLIB_contextInit(&context) != GLIB_OK);
     struct lcd_info *buf;
     while (1)
     {
@@ -710,5 +751,10 @@ static  void  Ex_LCD_Display_Task (void  *p_arg)
         OSTimeDly( 100,                                        /*   100 OS Ticks                                      */
                    OS_OPT_TIME_DLY,                             /*   from now.                                          */
                   &err);
+        context.backgroundColor = White;
+        context.foregroundColor = Black;
+        GLIB_clear(&context);
+        GLIB_drawLine(&context,  64,65, 64,128);
+        DMD_updateDisplay();
     }
 }
