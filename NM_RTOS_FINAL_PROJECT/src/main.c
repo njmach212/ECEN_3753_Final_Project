@@ -99,9 +99,6 @@ static  OS_TCB   Ex_GAIN_TaskTCB;
 static  CPU_STK  Ex_MOVEMENT_TaskStk[EX_MOVEMENT_TASK_STK_SIZE];
 static  OS_TCB   Ex_MOVEMENT_TaskTCB;
 
-//static  CPU_STK  Ex_LedOutputTaskStk[EX_LED_OUTPUT_TASK_STK_SIZE];
-//static  OS_TCB   Ex_LedOutputTaskTCB;
-
 static  CPU_STK  Ex_IdleTaskStk[EX_IDLE_TASK_STK_SIZE];
 static  OS_TCB   Ex_IdleTaskTCB;
 
@@ -117,7 +114,6 @@ static OS_FLAG_GRP 	physics_flag;
 static OS_SEM		btnsem;
 static OS_MUTEX		gainmut;
 static OS_MUTEX		movementmut;
-static OS_TMR		os_tmr;
 static  OS_Q  Message_Q;
 
 enum {
@@ -138,12 +134,9 @@ enum {
 static  void  Ex_MainStartTask (void  *p_arg);
 static void Ex_GAIN_Task(void *p_arg);
 static void Ex_MOVEMENT_Task(void *p_arg);
-//static void Ex_LedOutputTask(void *p_arg);
 static void Ex_IdleTask(void *p_arg);
 static void Ex_LCD_Display_Task(void *p_arg);
 static void Ex_PHYSICS_Task(void *p_arg);
-static void MyCallback(OS_TMR os_tmr, void *p_arg);
-//static volatile bool btn0 = false, btn1 = false;
 static volatile uint32_t msTicks = 0, start = 0;
 static  volatile uint32_t sld = 0;
 struct node *head = NULL;
@@ -306,7 +299,7 @@ int main(void)
 				 &err);
 
 	  OSTaskCreate(&Ex_GAIN_TaskTCB,                          /* Create the Start Task.                               */
-				 "Ex Speed Setpoint Task",
+				 "Ex Gain Task",
 				  Ex_GAIN_Task,
 				  DEF_NULL,
 				  EX_GAIN_TASK_PRIO,
@@ -320,7 +313,7 @@ int main(void)
 				 &err);
 
 	  OSTaskCreate(&Ex_MOVEMENT_TaskTCB,                          /* Create the Start Task.                               */
-				 "Ex Vehicle Direction Task",
+				 "Ex Movement Task",
 				  Ex_MOVEMENT_Task,
 				  DEF_NULL,
 				  EX_MOVEMENT_TASK_PRIO,
@@ -332,20 +325,6 @@ int main(void)
 				  DEF_NULL,
 				 (OS_OPT_TASK_STK_CLR),
 				 &err);
-
-//	  OSTaskCreate(&Ex_LedOutputTaskTCB,                          /* Create the Start Task.                               */
-//				 "Ex LED Output Task",
-//				  Ex_LedOutputTask,
-//				  DEF_NULL,
-//				  EX_LED_OUTPUT_TASK_PRIO,
-//				 &Ex_LedOutputTaskStk[0],
-//				 (EX_LED_OUTPUT_TASK_STK_SIZE / 10u),
-//				  EX_LED_OUTPUT_TASK_STK_SIZE,
-//				  0u,
-//				  0u,
-//				  DEF_NULL,
-//				 (OS_OPT_TASK_STK_CLR),
-//				 &err);
 
 	  OSTaskCreate(&Ex_IdleTaskTCB,                          /* Create the Start Task.                               */
 				 "Ex Idle Task",
@@ -362,7 +341,7 @@ int main(void)
 				 &err);
 
 	  OSTaskCreate(&Ex_PHYSICS_TaskTCB,                          /* Create the Start Task.                               */
-				 "Ex Vehicle Monitor Task",
+				 "Ex Physics Task",
 				  Ex_PHYSICS_Task,
 				  DEF_NULL,
 				  EX_PHYSICS_TASK_PRIO,
@@ -414,14 +393,6 @@ int main(void)
 	                     (CPU_CHAR    *)"gain Mutex",
 	                     (RTOS_ERR    *)&err);
 
-//	  	  OSTmrCreate ((OS_TMR               *)&os_tmr,
-//	                     (CPU_CHAR             *)"OS Timer",
-//	                     (OS_TICK)               10,
-//	                     (OS_TICK)               10,
-//	                     (OS_OPT)                OS_OPT_TMR_PERIODIC,
-//	                     (OS_TMR_CALLBACK_PTR)   &MyCallback,
-//	                     (void                 *)0,
-//	                     (RTOS_ERR             *)&err);
 
 	  	OSQCreate((OS_Q *) &Message_Q,
 	  				(CPU_CHAR *)"Message Queue",
@@ -442,11 +413,6 @@ int main(void)
 	  	  {
 	  	  }
 }
-
-//static void MyCallback(OS_TMR os_tmr, void *p_arg)
-//{
-//	RTOS_ERR err;
-//}
 
 static  void  Ex_MainStartTask (void  *p_arg)
 {
@@ -509,11 +475,26 @@ static  void  Ex_GAIN_Task (void  *p_arg)
         OSMutexPend(&gainmut, 0, OS_OPT_PEND_BLOCKING, (CPU_TS *)0, &err);
         if(btn == 0 && state == 0)
         {
-        	gain++;
+        	if (gain == 20)
+        	{
+        		gain = gain;
+        	}
+        	else
+        	{
+            	gain++;
+        	}
         }
         else if(btn == 1 && state == 0)
         {
-        	gain--;
+        	if(gain == 0)
+        	{
+        		gain = gain;
+        	}
+        	else
+        	{
+            	gain--;
+        	}
+
         }
         OSMutexPost(&gainmut, OS_OPT_POST_NONE, &err);
         OSFlagPost(&physics_flag, 0x1, OS_OPT_POST_FLAG_SET, &err);
@@ -528,7 +509,7 @@ static  void  Ex_MOVEMENT_Task (void  *p_arg)
     int temp = 0;
     while (1)
     {
-       OSTimeDly(100, OS_OPT_TIME_DLY, &err);
+       OSTimeDly(50, OS_OPT_TIME_DLY, &err);
        CAPSENSE_Sense();
        temp = sld;
        Sld();
@@ -562,47 +543,6 @@ static  void  Ex_MOVEMENT_Task (void  *p_arg)
     }
 }
 
-//static  void  Ex_LedOutputTask (void  *p_arg)
-//{
-//    RTOS_ERR  err;
-//    OS_FLAGS flag;
-//    PP_UNUSED_PARAM(p_arg);
-//	// Set LED ports to be standard output drive with default off (cleared)
-//	GPIO_DriveStrengthSet(LED0_port, gpioDriveStrengthStrongAlternateStrong);
-////	GPIO_DriveStrengthSet(LED0_port, gpioDriveStrengthWeakAlternateWeak);
-//	GPIO_PinModeSet(LED0_port, LED0_pin, gpioModePushPull, LED0_default);
-//
-//	GPIO_DriveStrengthSet(LED1_port, gpioDriveStrengthStrongAlternateStrong);
-////	GPIO_DriveStrengthSet(LED1_port, gpioDriveStrengthWeakAlternateWeak);
-//	GPIO_PinModeSet(LED1_port, LED1_pin, gpioModePushPull, LED1_default);
-//    while (1)
-//    {
-//    	flag = OSFlagPend(&event_flag, 0x7, 0, OS_OPT_PEND_FLAG_SET_ANY + OS_OPT_PEND_FLAG_CONSUME, (CPU_TS *)0, &err);
-//        OSTimeDly( 100, OS_OPT_TIME_DLY, &err);
-//        if (flag == led0)
-//        {
-//        	//GPIO_PinOutSet(LED0_port, LED0_pin);
-//        	GPIO_PinOutToggle(LED0_port, LED0_pin);
-//        	GPIO_PinOutClear(LED1_port, LED1_pin);
-//        }
-//        if (flag == led1)
-//        {
-//        	GPIO_PinOutSet(LED1_port, LED1_pin);
-//        	GPIO_PinOutClear(LED0_port, LED0_pin);
-//        }
-//        if (flag == both)
-//        {
-//        	GPIO_PinOutSet(LED1_port, LED1_pin);
-//        	GPIO_PinOutSet(LED0_port, LED0_pin);
-//        }
-//        if(flag == none)
-//        {
-//        	GPIO_PinOutClear(LED0_port, LED0_pin);
-//        	GPIO_PinOutClear(LED1_port, LED1_pin);
-//        }
-//    }
-//}
-
 
 static  void  Ex_IdleTask (void  *p_arg)
 {
@@ -621,14 +561,15 @@ static  void  Ex_PHYSICS_Task (void  *p_arg)
 {
     RTOS_ERR  err;
     OS_FLAGS flag;
+    int dir = 0;
     physics.Gain = 0;
     physics.st = msTicks;
     physics.ed = 0;
     physics.delta_t = 0;
     physics.Dir = 0;
     physics.gravity = 9.8;
-    physics.mass = 20;
-    physics.length = 0.5;
+    physics.mass = 0.05;
+    physics.length = 20;
     physics.xmin = -64;
     physics.xmax = 64;
     physics.h_velocity = 0;
@@ -642,13 +583,26 @@ static  void  Ex_PHYSICS_Task (void  *p_arg)
     physics.hc_force = 0;
     physics.vc_force = 0;
     physics.h_position = 0;
-    physics.v_position = 0.5;
+    physics.v_position = 20;
     physics.theta = 0;
+    physics.gm = 0;
     struct lcd_info post_msg;
     PP_UNUSED_PARAM(p_arg);
     while (1)
     {
-        flag = OSFlagPend(&physics_flag, 0x3, 0, OS_OPT_PEND_FLAG_SET_ANY + OS_OPT_PEND_FLAG_CONSUME, (CPU_TS *)0, &err);
+        if(physics.v_position <= 0 || (physics.h_position*3) <= physics.xmin || (physics.h_position*3) >= physics.xmax)
+        {
+
+        	physics.gm = 1;
+            GPIO_PinOutSet(LED1_port, LED1_pin);
+        	OSMutexPend(&gainmut, 0, OS_OPT_PEND_BLOCKING, (CPU_TS *)0, &err);
+        	gain = 0;
+        	OSMutexPost(&gainmut, OS_OPT_POST_NONE, &err);
+        }
+        flag = OSFlagPend(&physics_flag, 0x3, 0, OS_OPT_PEND_FLAG_SET_ANY + OS_OPT_PEND_FLAG_CONSUME + OS_OPT_PEND_NON_BLOCKING, (CPU_TS *)0, &err);
+        OSTimeDly( 10,                                        /*   100 OS Ticks                                      */
+                   OS_OPT_TIME_DLY,                             /*   from now.                                          */
+                  &err);
         if (0x2 == flag || 0x03 == flag)
         {
         	OSMutexPend(&movementmut, 0, OS_OPT_PEND_BLOCKING, (CPU_TS *)0, &err);
@@ -662,36 +616,52 @@ static  void  Ex_PHYSICS_Task (void  *p_arg)
         	OSMutexPost(&gainmut, OS_OPT_POST_NONE, &err);
         }
         physics.ed = msTicks;
-        if(physics.Gain != 0 && physics.theta == 0 && physics.Dir == 1)
+        if(physics.Dir != 0)
         {
-            physics.theta = -0.0175;
+        	dir = physics.Dir;
         }
-        else if (physics.Gain != 0 && physics.theta == 0 && physics.Dir == 2)
+        if(physics.Gain != 0 && physics.theta == 0 && (physics.Dir == 1 || dir == 1))
         {
             physics.theta = 0.0175;
+            physics.v_acceleration = 0;
+            physics.v_velocity = 0;
+        }
+        else if (physics.Gain != 0 && physics.theta == 0 && (physics.Dir == 2 || dir == 2))
+        {
+            physics.theta = -0.0175;
+            physics.v_acceleration = 0;
+            physics.v_velocity = 0;
         }
         physics.delta_t = (physics.ed - physics.st)/1000;
         physics.vb_force = physics.mass * physics.gravity;
         physics.hb_force = -(physics.vb_force * tan(physics.theta));
-        physics.hc_force = (physics.Gain * (bool)(physics.Dir))*sin(physics.theta)*sin(physics.theta);
+        physics.hc_force = physics.Gain*((bool)(physics.Dir))*sin(physics.theta)*sin(physics.theta);
         if(physics.theta == 0)
         {
             physics.vc_force = physics.mass*physics.gravity;
         }
         else
         {
-            physics.vc_force = (physics.Gain*(bool)(physics.Dir))*sin(physics.theta)*cos(physics.theta);
+            physics.vc_force = physics.Gain*((bool)(physics.Dir))*sin(physics.theta)*cos(physics.theta);
             if(physics.vc_force < 0)
             {
                 physics.vc_force = -physics.vc_force;
             }
+        }
+        if(physics.theta < 0 && physics.Gain !=0 && physics.Dir == 2)
+        {
+        	physics.vc_force = 0;
+        }
+        else if(physics.theta > 0 && physics.Gain !=0 && physics.Dir == 1)
+        {
+        	physics.vc_force = 0;
         }
         physics.v_force = physics.vc_force - physics.vb_force;
         if(physics.Dir == 1)
         {
             if(physics.hb_force < physics.hc_force)
             {
-                physics.h_force = physics.hb_force + physics.hc_force;
+                physics.h_force = physics.hb_force - physics.hc_force;
             }
             else
             {
@@ -702,7 +672,7 @@ static  void  Ex_PHYSICS_Task (void  *p_arg)
         {
             if(physics.hb_force < physics.hc_force)
             {
-                physics.h_force = physics.hb_force - physics.hc_force;
+                physics.h_force = physics.hb_force + physics.hc_force;
             }
             else
             {
@@ -719,21 +689,33 @@ static  void  Ex_PHYSICS_Task (void  *p_arg)
         physics.h_velocity = physics.h_velocity + physics.h_acceleration*physics.delta_t;
         physics.v_position = physics.v_position + physics.v_velocity*physics.delta_t;
         physics.h_position = physics.h_position + physics.h_velocity*physics.delta_t;
-        physics.hc_position = -physics.length*sin(physics.theta);
+        physics.hc_position = physics.h_position - physics.length*sin(physics.theta);
+        if (physics.v_position > 20)
+        {
+        	physics.v_position = 20;
+        }
+        double horizantal = sqrt((physics.length * physics.length) - (physics.v_position * physics.v_position));
+        if (horizantal < 0)
+        {
+        	horizantal = -(physics.h_position - physics.hc_position);
+        }
         if(physics.hc_position < physics.h_position)
         {
-            physics.theta = acos(physics.v_position/physics.length);
+            physics.theta = asin(horizantal/physics.length);
         }
         else if(physics.hc_position > physics.h_position)
         {
-            physics.theta = -acos(physics.v_position/physics.length);
+            physics.theta = -asin(horizantal/physics.length);
         }
         else
         {
             physics.theta = 0;
         }
         physics.st = physics.ed;
-
+        post_msg.c_postion = physics.hc_position;
+        post_msg.x_position = physics.h_position;
+        post_msg.y_position = physics.v_position;
+        post_msg.gm = physics.gm;
 		OSQPost(&Message_Q, &post_msg, sizeof(post_msg), OS_OPT_POST_FIFO, &err);
     }
 }
@@ -744,17 +726,46 @@ static  void  Ex_LCD_Display_Task (void  *p_arg)
     PP_UNUSED_PARAM(p_arg);
 	while(DMD_init(0) != DMD_OK);
 	while(GLIB_contextInit(&context) != GLIB_OK);
+	GLIB_Rectangle_t Rect;
     struct lcd_info *buf;
+    double x = 0, y = 0, c = 0;
+    int gm = 0;
+    char gameover [20];
+    strncpy(gameover, "Game Over", 9);
+    context.backgroundColor = Black;
+    context.foregroundColor = White;
+    GLIB_clear(&context);
+    GLIB_drawLine(&context,  64,128, 64,68);
+    DMD_updateDisplay();
     while (1)
     {
-    	buf = OSQPend(&Message_Q, 0 , OS_OPT_PEND_NON_BLOCKING, (OS_MSG_SIZE *)sizeof(struct lcd_info), (CPU_TS *)0, &err);
-        OSTimeDly( 100,                                        /*   100 OS Ticks                                      */
-                   OS_OPT_TIME_DLY,                             /*   from now.                                          */
-                  &err);
-        context.backgroundColor = White;
-        context.foregroundColor = Black;
-        GLIB_clear(&context);
-        GLIB_drawLine(&context,  64,65, 64,128);
+    	buf = OSQPend(&Message_Q, 0 , OS_OPT_PEND_BLOCKING, (OS_MSG_SIZE *)sizeof(struct lcd_info), (CPU_TS *)0, &err);
+    	x = buf->x_position;
+    	y = buf->y_position;
+    	c = buf->c_postion;
+    	gm = buf->gm;
+    	if(gm == 1)
+    	{
+    		GLIB_clear(&context);
+    		GLIB_drawString(&context, gameover, strlen(gameover), 30, 64, true);
+    	}
+    	else
+    	{
+        	c *= 3;
+        	x *= 3;
+        	y *= 3;
+        	y = 128-y;
+        	x += 64;
+        	c += 64;
+            GLIB_clear(&context);
+            GLIB_drawLine(&context,  c,128, x,y);
+            GLIB_drawCircleFilled(&context, x, y, 5);
+            Rect.xMax = c+10;
+    		Rect.xMin = c-10;
+    		Rect.yMax = 128;
+    		Rect.yMin = 118;
+            GLIB_drawRectFilled(&context, &Rect);
+    	}
         DMD_updateDisplay();
     }
 }

@@ -18,16 +18,16 @@ struct node
 
 struct Physics
 {
-	uint32_t Gain;
-	uint32_t st;
-	uint32_t ed;
-	uint32_t delta_t;
-	uint32_t Dir;
+	double Gain;
+	double st;
+	double ed;
+	double delta_t;
+	double Dir;
 	double gravity;
-	uint32_t mass;
+	double mass;
 	double length;
-	int xmin;
-	int xmax;
+	double xmin;
+	double xmax;
 	double theta;
 	double h_velocity;
 	double v_velocity;
@@ -42,14 +42,15 @@ struct Physics
 	double h_position;
 	double v_position;
 	double hc_position;
+	int gm;
 };
 
 struct lcd_info
 {
-	double theta;
 	double x_position;
 	double y_position;
 	double c_postion;
+	int gm;
 };
 
 void pop(int *btn, int *state, struct node **head);
